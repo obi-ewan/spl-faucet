@@ -1,23 +1,23 @@
 import * as anchor from "@project-serum/anchor";
-import {AnchorProvider, BN, Program, Provider} from "@project-serum/anchor";
-import {BetdexSplFaucet} from "../target/types/betdex_spl_faucet";
+import {AnchorProvider, BN, Program, web3} from "@project-serum/anchor";
+import {SplFaucet} from "../target/types/spl_faucet";
 import {PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY} from "@solana/web3.js";
 import NodeWallet from "@project-serum/anchor/dist/esm/nodewallet";
-import {Token, TOKEN_PROGRAM_ID} from "@solana/spl-token";
+import {createAssociatedTokenAccount, createMint, getAccount, mintTo, TOKEN_PROGRAM_ID} from "@solana/spl-token";
 import * as assert from "assert";
 
-describe("betdex-spl-faucet", () => {
+describe("spl-faucet", () => {
     // Configure the client to use the local cluster.
     const provider = anchor.AnchorProvider.env();
     anchor.setProvider(provider);
 
-    const program = anchor.workspace.BetdexSplFaucet as Program<BetdexSplFaucet>;
+    const program = anchor.workspace.SplFaucet as Program<SplFaucet>;
 
     it("Initialize new faucet", async () => {
-      const faucet = await initializeFaucet(program, provider)
+        const faucet = await initializeFaucet(program, provider)
 
         const createdConfig = await program.account.faucetConfig.fetch(faucet.faucetConfigPk);
-        assert.equal(createdConfig.amount.toNumber(),100 * 10 ** 9);
+        assert.equal(createdConfig.amount.toNumber(), 100 * 10 ** 9);
         assert.equal(createdConfig.limit.toNumber(), 1000 * 10 ** 9);
     });
 
@@ -25,13 +25,22 @@ describe("betdex-spl-faucet", () => {
         const faucet = await initializeFaucet(program, provider)
 
         const mint = faucet.mint;
-        const tokenAccount = await mint.createAssociatedTokenAccount(provider.wallet.publicKey)
+        const wallet = provider.wallet as NodeWallet
+        const tokenAccount = await createAssociatedTokenAccount(
+            provider.connection,
+            wallet.payer,
+            mint,
+            provider.wallet.publicKey
+        )
 
-        await mint.mintTo(
+        await mintTo(
+            provider.connection,
+            wallet.payer,
+            mint,
             faucet.tokenVaultPk,
             provider.wallet.publicKey,
-            [],
             100 * 10 ** 9,
+            [],
         );
 
         await program.methods.airdrop().accounts({
@@ -39,10 +48,9 @@ describe("betdex-spl-faucet", () => {
             payerTokenAccount: tokenAccount,
             tokenVault: faucet.tokenVaultPk,
             config: faucet.faucetConfigPk,
-            mint: faucet.mint.publicKey,
+            mint: faucet.mint,
             tokenProgram: TOKEN_PROGRAM_ID,
         }).rpc();
-
 
         const tokenBalance = await provider.connection.getTokenAccountBalance(tokenAccount);
         assert.equal(tokenBalance.value.amount, 100 * 10 ** 9);
@@ -52,19 +60,32 @@ describe("betdex-spl-faucet", () => {
         const faucet = await initializeFaucet(program, provider)
 
         const mint = faucet.mint;
-        const tokenAccount = await mint.createAssociatedTokenAccount(provider.wallet.publicKey)
+        const wallet = provider.wallet as NodeWallet
+        const tokenAccount = await createAssociatedTokenAccount(
+            provider.connection,
+            wallet.payer,
+            mint,
+            provider.wallet.publicKey
+        )
 
-        await mint.mintTo(
+        await mintTo(
+            provider.connection,
+            wallet.payer,
+            mint,
             faucet.tokenVaultPk,
             provider.wallet.publicKey,
-            [],
             100 * 10 ** 9,
+            [],
         );
-        await mint.mintTo(
+
+        await mintTo(
+            provider.connection,
+            wallet.payer,
+            mint,
             tokenAccount,
             provider.wallet.publicKey,
-            [],
             1000 * 10 ** 9,
+            [],
         );
 
         try {
@@ -73,7 +94,7 @@ describe("betdex-spl-faucet", () => {
                 payerTokenAccount: tokenAccount,
                 tokenVault: faucet.tokenVaultPk,
                 config: faucet.faucetConfigPk,
-                mint: faucet.mint.publicKey,
+                mint: faucet.mint,
                 tokenProgram: TOKEN_PROGRAM_ID,
             }).rpc();
         } catch (e) {
@@ -86,27 +107,26 @@ describe("betdex-spl-faucet", () => {
 });
 
 
-async function initializeFaucet(program: Program<BetdexSplFaucet>, provider: AnchorProvider) {
+async function initializeFaucet(program: Program<SplFaucet>, provider: AnchorProvider) {
     const mintDecimals = 9;
     const airdropAmount = 100_000_000_000; // 100;
     const limit = 1000_000_000_000; // 1000;
 
     const wallet = provider.wallet as NodeWallet;
-    const mint = await Token.createMint(
+    const mint = await createMint(
         provider.connection,
         wallet.payer,
         wallet.publicKey,
         wallet.publicKey,
         mintDecimals,
-        TOKEN_PROGRAM_ID,
     );
 
     const [tokenVaultPk] = await PublicKey.findProgramAddress(
-        [Buffer.from("faucet_token_vault"), mint.publicKey.toBuffer()], program.programId,
+        [Buffer.from("faucet_token_vault"), mint.toBuffer()], program.programId,
     );
 
     const [faucetConfigPk] = await PublicKey.findProgramAddress(
-        [Buffer.from("faucet_config"), mint.publicKey.toBuffer()], program.programId,
+        [Buffer.from("faucet_config"), mint.toBuffer()], program.programId,
     );
 
     await program
@@ -116,7 +136,7 @@ async function initializeFaucet(program: Program<BetdexSplFaucet>, provider: Anc
             tokenVault: tokenVaultPk,
             config: faucetConfigPk,
             payer: provider.wallet.publicKey,
-            mint: mint.publicKey,
+            mint: mint,
             rent: SYSVAR_RENT_PUBKEY,
             systemProgram: SystemProgram.programId,
             tokenProgram: TOKEN_PROGRAM_ID,

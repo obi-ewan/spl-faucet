@@ -6,7 +6,7 @@ use anchor_spl::token::{Mint, Token, TokenAccount};
 declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
 
 #[program]
-pub mod betdex_spl_faucet {
+pub mod spl_faucet {
     use super::*;
     use anchor_spl::token;
 
